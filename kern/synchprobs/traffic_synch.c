@@ -21,7 +21,6 @@
 
 Direction volatile curDirection = north;
 int volatile count = 0;
-
 static struct lock * lock;
 static struct cv * n;
 static struct cv * e;
@@ -118,13 +117,13 @@ intersection_before_entry(Direction origin, Direction destination)
 
   lock_acquire(lock);
 
-  if (count != 0 && curDirection != origin) {
+  if (curDirection != origin) {
 
       Direction * new_direction = (Direction *)kmalloc(sizeof(Direction));
       *new_direction = origin;
       q_addtail(queue, (void *)new_direction);
 
-      while(count != 0 && curDirection != origin) {
+      while (count != 0 && curDirection != origin ) {
 	 switch (origin) {
 	    case north:
 		    cv_wait(n, lock);
@@ -206,4 +205,3 @@ intersection_after_exit(Direction origin, Direction destination)
   }
   lock_release(lock);
 }
-
