@@ -26,6 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#include "opt-A2.h"
 
 #ifndef _SYSCALL_H_
 #define _SYSCALL_H_
@@ -43,6 +44,9 @@ void syscall(struct trapframe *tf);
  * Support functions.
  */
 
+#if OPT_A2
+void enter_forked_process_wrapper(void *tf, unsigned long data);
+#endif
 /* Helper for fork(). You write this. */
 void enter_forked_process(struct trapframe *tf);
 
@@ -63,7 +67,10 @@ int sys_write(int fdesc,userptr_t ubuf,unsigned int nbytes,int *retval);
 void sys__exit(int exitcode);
 int sys_getpid(pid_t *retval);
 int sys_waitpid(pid_t pid, userptr_t status, int options, pid_t *retval);
-
 #endif // UW
+
+#if OPT_A2
+int sys_fork(struct trapframe *tf, pid_t *retval);
+#endif
 
 #endif /* _SYSCALL_H_ */

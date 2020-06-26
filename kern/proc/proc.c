@@ -50,6 +50,7 @@
 #include <vfs.h>
 #include <synch.h>
 #include <kern/fcntl.h>  
+#include "opt-A2.h"
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -103,6 +104,24 @@ proc_create(const char *name)
 	proc->console = NULL;
 #endif // UW
 
+#if OPT_A2
+	proc->child_lock = lock_create("process");
+        if (proc->child_lock == NULL) {
+                panic("could not create lock");
+        }
+
+	proc->p_cv = cv_create("dead");
+	if (proc->p_cv == NULL) {
+		panic("could not create cv");
+	}
+
+	DEBUG(DB_SYSCALL,"proc_create: Created parent and child locks.\n");
+	proc->children = array_create();
+	proc->parent = NULL;
+	proc->dead = false;
+#endif
+
+	DEBUG(DB_SYSCALL, "proc_create: Returning\n");
 	return proc;
 }
 
@@ -157,13 +176,36 @@ proc_destroy(struct proc *proc)
 	}
 #endif // UW
 
+#if OPT_A2
+        lock_acquire(proc->child_lock);
+        for (unsigned int i = array_num(proc->children); i > 0 ; i--) {
+		struct proc *child = array_get(proc->children,i-1);
+                if (child != NULL && child->dead) { // child is dead
+			proc_destroy(child);
+                }
+                else if (child != NULL && !child->dead) {
+                        lock_acquire(child->child_lock);
+                        child->parent = NULL;
+                        lock_release(child->child_lock);
+                }
+                array_remove(proc->children, i-1);
+        }
+	array_destroy(proc->children);
+	cv_destroy(proc->p_cv);
+        proc->parent = NULL;
+        proc->dead = true;
+        lock_release(proc->child_lock);
+
+        lock_destroy(proc->child_lock);
+#endif
+
 #ifdef UW
 	if (proc->console) {
 	  vfs_close(proc->console);
 	}
 #endif // UW
+        threadarray_cleanup(&proc->p_threads);
 
-	threadarray_cleanup(&proc->p_threads);
 	spinlock_cleanup(&proc->p_lock);
 
 	kfree(proc->p_name);
@@ -183,8 +225,6 @@ proc_destroy(struct proc *proc)
 	}
 	V(proc_count_mutex);
 #endif // UW
-	
-
 }
 
 /*
@@ -208,6 +248,18 @@ proc_bootstrap(void)
     panic("could not create no_proc_sem semaphore\n");
   }
 #endif // UW 
+
+#if OPT_A2
+  destroyLock = lock_create("destroyLock");
+  if (destroyLock == NULL) {
+	  panic("could not create destroylock");
+  }
+  PIDLock = lock_create("PIDLock");
+  if (PIDLock == NULL) {
+          panic("could not create PIDlock");
+  }
+  PIDCounter = 0;
+#endif
 }
 
 /*

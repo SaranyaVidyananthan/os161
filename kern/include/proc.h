@@ -38,6 +38,13 @@
 
 #include <spinlock.h>
 #include <thread.h> /* required for struct threadarray */
+#include "opt-A2.h"
+
+#if OPT_A2
+struct lock *destroyLock;
+struct lock *PIDLock;
+volatile pid_t PIDCounter;
+#endif
 
 struct addrspace;
 struct vnode;
@@ -58,6 +65,17 @@ struct proc {
 
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
+
+#if OPT_A2
+	pid_t PID;                      /* Unique ID of the process */
+	int exitCode;                   /* Exit code  */
+	struct proc *parent;            /* Pointer of parent */
+	struct lock *child_lock;        /* Lock to access child array */
+	struct array *children;         /* Children processes  */
+	struct trapframe *tf;           /* Trapframe */
+	bool dead;
+	struct cv *p_cv;                /* CV for the parent to wait */
+#endif
 
 #ifdef UW
   /* a vnode to refer to the console device */
