@@ -185,9 +185,6 @@ sys_fork(struct trapframe *tf,
 int 
 sys_execv(const char * progname, char ** args) 
 {
-
-	(void) args;
-
 	struct addrspace *as;
 	struct vnode *v;
 	vaddr_t entrypoint, stackptr;
@@ -196,6 +193,19 @@ sys_execv(const char * progname, char ** args)
 	/* Copy the program path from user to kernel */
 	char * progname_kern = kmalloc((strlen(progname)+1) * sizeof(char));
 	copyin((const_userptr_t) progname, (void *) progname_kern, (strlen(progname)+1) * sizeof(char));
+
+	/* Count the number of args and copy them into the kernel */
+	int len = 0;
+	while (args[len]) {
+		++len;
+	}
+	char ** args_kern = kmalloc((len+1) * sizeof(char *));
+	for (int i = 0; i < len; ++i) {
+		args_kern[i] = kmalloc((strlen(args[i])+1) * sizeof(char));
+		result = copyin((const_userptr_t) args[i], (void *) args_kern[i], (strlen(args[i])+1) * sizeof(char));
+		if (result) return result;
+	}
+	args_kern[len] = NULL;
 
 	/* Open the file. */
 	result = vfs_open(progname_kern, O_RDONLY, 0, &v);
@@ -211,7 +221,7 @@ sys_execv(const char * progname, char ** args)
 	}
 
 	/* Switch to it and activate it. */
-	curproc_setas(as);
+	struct addrspace * old_as = curproc_setas(as);
 	as_activate();
 
 	/* Load the executable. */
@@ -231,10 +241,34 @@ sys_execv(const char * progname, char ** args)
 		/* p_addrspace will go away when curproc is destroyed */
 		return result;
 	}
+
+	/* Copy args from kernel to stack */
+	vaddr_t *args_ptr = kmalloc((len+1) * sizeof(vaddr_t));
+	for (int i = len-1; i >= 0; --i) {
+		stackptr = stackptr - ROUNDUP(strlen(args_kern[i])+1, 4);
+		result = copyoutstr(args_kern[i],
+			   (userptr_t)stackptr,
+			   strlen(args_kern[i]) + 1,
+			   NULL);
+		if (result) return result;
+		args_ptr[i] = stackptr;
+	}
+	args_ptr[len] = (vaddr_t)NULL;
+
+	for (int i = len; i >= 0; --i) {
+		stackptr = stackptr - ROUNDUP(sizeof(vaddr_t), 4);
+		result = copyout((void *) &args_ptr[i],
+				(userptr_t) stackptr,
+				sizeof(vaddr_t));
+		if (result) return result;
+	}
+
+	/* Delete the old address space */
+	as_destroy(old_as);
 	
 	/* Warp to user mode. */
-	enter_new_process(0 /*argc*/, NULL /*userspace addr of argv*/,
-			  stackptr, entrypoint);
+	enter_new_process(len /*argc*/, (userptr_t)stackptr /*userspace addr of argv*/,
+			  ROUNDUP(stackptr,8), entrypoint);
 	
 	/* enter_new_process does not return. */
 	panic("enter_new_process returned\n");
