@@ -279,6 +279,14 @@ proc_create_runprogram(const char *name)
 		return NULL;
 	}
 
+#if OPT_A2
+	// assign a PID to child process
+	lock_acquire(PIDLock);
+		PIDCounter++;
+		proc->PID = PIDCounter;
+	lock_release(PIDLock);
+#endif
+
 #ifdef UW
 	/* open the console - this should always succeed */
 	console_path = kstrdup("con:");

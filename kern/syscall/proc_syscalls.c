@@ -12,9 +12,8 @@
 #include "opt-A2.h"
 #include <mips/trapframe.h>
 #include <synch.h>
-
-  /* this implementation of sys__exit does not do anything with the exit code */
-  /* this needs to be fixed to get exit() and waitpid() working properly */
+#include <vfs.h>
+#include <kern/fcntl.h>
 
 void sys__exit(int exitcode) {
 
@@ -160,12 +159,6 @@ sys_fork(struct trapframe *tf,
 		return ENOMEM;
 	}
 
-	// assign a PID to child process
-	lock_acquire(PIDLock);
-		PIDCounter++;
-		new_proc->PID = PIDCounter;
-	lock_release(PIDLock);
-
 	//establish parent-child relationship
 	lock_acquire(curproc->child_lock);
 		array_add(curproc->children, new_proc, NULL);
@@ -188,4 +181,65 @@ sys_fork(struct trapframe *tf,
 
 	return 0;
 }
+
+int 
+sys_execv(const char * progname, char ** args) 
+{
+
+	(void) args;
+
+	struct addrspace *as;
+	struct vnode *v;
+	vaddr_t entrypoint, stackptr;
+	int result;
+
+	/* Copy the program path from user to kernel */
+	char * progname_kern = kmalloc((strlen(progname)+1) * sizeof(char));
+	copyin((const_userptr_t) progname, (void *) progname_kern, (strlen(progname)+1) * sizeof(char));
+
+	/* Open the file. */
+	result = vfs_open(progname_kern, O_RDONLY, 0, &v);
+	if (result) {
+		return result;
+	}
+
+	/* Create a new address space. */
+	as = as_create();
+	if (as == NULL) {
+		vfs_close(v);
+		return ENOMEM;
+	}
+
+	/* Switch to it and activate it. */
+	curproc_setas(as);
+	as_activate();
+
+	/* Load the executable. */
+	result = load_elf(v, &entrypoint);
+	if (result) {
+		/* p_addrspace will go away when curproc is destroyed */
+		vfs_close(v);
+		return result;
+	}
+
+	/* Done with the file now. */
+	vfs_close(v);
+
+	/* Define the user stack in the address space */
+	result = as_define_stack(as, &stackptr);
+	if (result) {
+		/* p_addrspace will go away when curproc is destroyed */
+		return result;
+	}
+	
+	/* Warp to user mode. */
+	enter_new_process(0 /*argc*/, NULL /*userspace addr of argv*/,
+			  stackptr, entrypoint);
+	
+	/* enter_new_process does not return. */
+	panic("enter_new_process returned\n");
+	return EINVAL;
+
+}
+
 #endif
