@@ -265,7 +265,12 @@ sys_execv(const char * progname, char ** args)
 
 	/* Delete the old address space */
 	as_destroy(old_as);
-	
+
+	  for (int i = 0; i <= len; ++i) {
+		  kfree(args_kern[i]);
+	  }
+	  kfree(args_kern);
+
 	/* Warp to user mode. */
 	enter_new_process(len /*argc*/, (userptr_t)stackptr /*userspace addr of argv*/,
 			  ROUNDUP(stackptr,8), entrypoint);

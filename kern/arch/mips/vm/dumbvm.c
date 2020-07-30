@@ -144,17 +144,16 @@ free_kpages(vaddr_t addr)
 {
 #if OPT_A3
 	spinlock_acquire(&coremap_lock);
-	paddr_t paddr = addr - MIPS_KSEG0;
-	unsigned int i = ((paddr - coremap_begin) / PAGE_SIZE) - 1;
+	unsigned int i = ((addr - MIPS_KSEG0 - coremap_begin) / PAGE_SIZE) - 1;
 	
 	((int *) PADDR_TO_KVADDR(coremap_begin))[i] = 0;
 	++i;
 	int temp = ((int *) PADDR_TO_KVADDR(coremap_begin))[i];
 
-	while (temp != 0 && temp != 1) {
+	for (;temp != 0 && temp != 1; ++i)
+	{
 		((int *) PADDR_TO_KVADDR(coremap_begin))[i] = 0;
-		++i;
-		temp = ((int*) PADDR_TO_KVADDR(coremap_begin))[i];
+		temp = ((int*) PADDR_TO_KVADDR(coremap_begin))[i+1];
 	}
 
 	spinlock_release(&coremap_lock);
@@ -237,9 +236,6 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 	KASSERT((as->as_pbase2 & PAGE_FRAME) == as->as_pbase2);
 	KASSERT((as->as_stackpbase & PAGE_FRAME) == as->as_stackpbase);
 
-#if OPT_A3
-	bool code_seg_flag = false;
-#endif
 	vbase1 = as->as_vbase1;
 	vtop1 = vbase1 + as->as_npages1 * PAGE_SIZE;
 	vbase2 = as->as_vbase2;
@@ -249,9 +245,6 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 
 	if (faultaddress >= vbase1 && faultaddress < vtop1) {
 		paddr = (faultaddress - vbase1) + as->as_pbase1;
-#if OPT_A3
-		code_seg_flag = true;
-#endif
 	}
 	else if (faultaddress >= vbase2 && faultaddress < vtop2) {
 		paddr = (faultaddress - vbase2) + as->as_pbase2;
@@ -278,7 +271,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 		elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
 		DEBUG(DB_VM, "dumbvm: 0x%x -> 0x%x\n", faultaddress, paddr);
 #if OPT_A3
-	        if (code_seg_flag && as->as_loadelf_done) elo &=~TLBLO_DIRTY;
+	        if (faultaddress >= vbase1 && faultaddress < vtop1 && as->as_loadelf_done) elo &=~TLBLO_DIRTY;
 #endif
 		tlb_write(ehi, elo, i);
 		splx(spl);
@@ -287,7 +280,7 @@ vm_fault(int faulttype, vaddr_t faultaddress)
 #if OPT_A3
 	ehi = faultaddress;
 	elo = paddr | TLBLO_DIRTY | TLBLO_VALID;
-	if (code_seg_flag && as->as_loadelf_done) elo &=~TLBLO_DIRTY;
+	if (faultaddress >= vbase1 && faultaddress < vtop1 && as->as_loadelf_done) elo &=~TLBLO_DIRTY;
 	tlb_random(ehi, elo);
 	splx(spl);
 	return 0;
