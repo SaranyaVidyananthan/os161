@@ -59,5 +59,6 @@ void free_kpages(vaddr_t addr);
 void vm_tlbshootdown_all(void);
 void vm_tlbshootdown(const struct tlbshootdown *);
 
+paddr_t coremap_stealmemory(unsigned long numOfPages);
 
 #endif /* _VM_H_ */
